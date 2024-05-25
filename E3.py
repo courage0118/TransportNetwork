@@ -44,7 +44,7 @@ class network():  # 网络类，核心函数
         self.num_Origins = 0  # 起点个数
         self.Linkflows = []  # 路段流量集合
         self.Linktimes = []  # 路段行驶时间集合
-        self.max_err = 0.1  # UE最大误差
+        self.max_err = 0.001  # UE最大误差
         self.err = 1  # 初始UE误差
         self.Djpathcost = []  # 最短路阻抗集合（Dijkstra算法求得）
         self.Djpath = []  # 最短路集合
@@ -91,7 +91,7 @@ class network():  # 网络类，核心函数
                 self.Origins[newnode.origin - 1].Destination.append(self.Nodes[int(row[1]) - 1].ID)
                 self.Origins[newnode.origin - 1].odlinks_demand.append(float(row[2]))
 
-    def Dijkstra(self, start, end):  # Dijkstra求解最短路（也叫标号法）
+    def Dijkstra_path(self, start, end):  # 记录最短路径
         startpos = 0
         endpos = 1
         path = []
@@ -102,42 +102,7 @@ class network():  # 网络类，核心函数
         bscanStatus = [None for i in range(len(self.Nodes))]
         for i in range(len(self.Nodes)):
             self.Djpath.append(-1)
-            self.Djpathcost.append(9999999)  # 标号法初始路阻最大
-            boolcheckpath.append(False)
-        self.Djpathcost[start - 1] = 0
-        checkpath[0] = start - 1
-        while startpos != endpos:
-            if startpos >= len(self.Nodes):
-                startpos = 0
-            i = checkpath[startpos]
-            startpos += 1
-            newnode = self.Nodes[i]
-            for j in range(len(newnode.outnode)):
-                newlink = self.Links[newnode.outnode[j] - 1]
-                k = newlink.D_link.ID
-                tt = newlink.Traveltime
-                if self.Djpathcost[k - 1] > self.Djpathcost[i] + tt:
-                    self.Djpathcost[k - 1] = self.Djpathcost[i] + tt
-                    self.Djpath[k - 1] = i
-                    if endpos >= len(self.Nodes):
-                        endpos = 0
-                    checkpath[endpos] = k - 1
-                    endpos += 1
-                    bscanStatus[k - 1] = True
-        return self.Djpathcost[end - 1]
-
-    def Dijkstra_path(self, start, end):  # 记录最短路径，与上述函数基本相同，输出结果不同，方便调用
-        startpos = 0
-        endpos = 1
-        path = []
-        checkpath = [None for i in range(len(self.Nodes))]
-        boolcheckpath = []
-        self.Djpathcost = []
-        self.Djpath = [None for i in range(len(self.Nodes))]
-        bscanStatus = [None for i in range(len(self.Nodes))]
-        for i in range(len(self.Nodes)):
-            self.Djpath.append(-1)
-            self.Djpathcost.append(9999999)
+            self.Djpathcost.append(999999)
             boolcheckpath.append(False)
         self.Djpathcost[start - 1] = 0
         checkpath[0] = start - 1
@@ -218,7 +183,6 @@ class network():  # 网络类，核心函数
         self.Linkflows = [0 for i in range(len(self.Links))]
         self.Linkflows = self.all_none()
         while self.err > self.max_err:
-            print("iter")
             oldlinkflow = self.Linkflows
             newlinkflow = self.all_none()
             Descent = []
