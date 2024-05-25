@@ -2,7 +2,7 @@ import csv
 import numpy as np
 import math
 import os
-
+import heapq
 
 # 1：基本类定义（路段，节点，OD对）
 class node():  # 节点类，包含每个节点的坐标信息
@@ -62,17 +62,36 @@ class network():  # 网络类，核心函数
             reader = csv.reader(file)
             linkid = 1
             for row in reader:
+                o_node_id = int(row[0])
+                d_node_id = int(row[1])
+                fft = int(row[2])
+                capacity = float(row[3])
+
+                # 正向路段
                 newlink = link()
                 newlink.ID = linkid
-                newlink.O_link = node(id=int(row[0]))
-                newlink.D_link = node(id=int(row[1]))
-                newlink.FFT = int(row[2])
-                newlink.Capacity = float(row[3])
-                # 将节点信息存储到相应的节点对象中
-                newlink.O_link.outnode.append(newlink.ID)
-                newlink.D_link.innode.append(newlink.ID)
-                linkid += 1
+                newlink.O_link = self.Nodes[o_node_id - 1]
+                newlink.D_link = self.Nodes[d_node_id - 1]
+                newlink.FFT = fft
+                newlink.Capacity = capacity
+                newlink.Traveltime = fft
+                self.Nodes[o_node_id - 1].outnode.append(newlink.ID)
+                self.Nodes[d_node_id - 1].innode.append(newlink.ID)
                 self.Links.append(newlink)
+                linkid += 1
+
+                # 反向路段
+                newlink_reverse = link()
+                newlink_reverse.ID = linkid
+                newlink_reverse.O_link = self.Nodes[d_node_id - 1]
+                newlink_reverse.D_link = self.Nodes[o_node_id - 1]
+                newlink_reverse.FFT = fft
+                newlink_reverse.Capacity = capacity
+                newlink_reverse.Traveltime = fft
+                self.Nodes[d_node_id - 1].outnode.append(newlink_reverse.ID)
+                self.Nodes[o_node_id - 1].innode.append(newlink_reverse.ID)
+                self.Links.append(newlink_reverse)
+                linkid += 1
 
     def read_od(self, path):
         with open(path, 'r') as file:
@@ -91,51 +110,52 @@ class network():  # 网络类，核心函数
                 self.Origins[newnode.origin - 1].Destination.append(self.Nodes[int(row[1]) - 1].ID)
                 self.Origins[newnode.origin - 1].odlinks_demand.append(float(row[2]))
 
-    def Dijkstra_path(self, start, end):  # 记录最短路径
-        num_nodes = len(self.Nodes)
-        unvisited = {node.ID: float('inf') for node in self.Nodes}
-        unvisited[start] = 0
-        visited = {}
+
+
+    def Dijkstra_path(self, start, end):
+        # 使用优先队列（堆）来存储和获取当前最短距离的节点
+        priority_queue = []
+        heapq.heappush(priority_queue, (0, start))  # 将起点压入堆，距离为0
+
+        distances = {node.ID: float('inf') for node in self.Nodes}
+        distances[start] = 0
+
         parents = {node.ID: None for node in self.Nodes}
 
-        while unvisited:
-            current_node = min(unvisited, key=unvisited.get)
-            current_distance = unvisited[current_node]
+        while priority_queue:
+            # 获取当前距离最小的节点
+            current_distance, current_node = heapq.heappop(priority_queue)
 
-            if current_distance == float('inf'):
+            # 如果当前节点是终点，则退出循环
+            if current_node == end:
                 break
 
+            # 遍历当前节点的所有邻居
             for link_id in self.Nodes[current_node - 1].outnode:
                 link = self.Links[link_id - 1]
                 neighbor = link.D_link.ID
                 new_distance = current_distance + link.Traveltime
 
-                if new_distance < unvisited.get(neighbor, float('inf')):
-                    unvisited[neighbor] = new_distance
+                # 如果找到更短的路径，则更新距离和路径，并将其加入堆中
+                if new_distance < distances[neighbor]:
+                    distances[neighbor] = new_distance
                     parents[neighbor] = current_node
+                    heapq.heappush(priority_queue, (new_distance, neighbor))
 
-            visited[current_node] = current_distance
-            unvisited.pop(current_node)
-
-            if current_node == end:
-                break
-
+        # 重构最短路径
         path = []
         node = end
         while parents[node] is not None:
-            for link in self.Links:
-                if link.O_link.ID == parents[node] and link.D_link.ID == node:
-                    path.insert(0, link.ID)
+            path.insert(0, node)
             node = parents[node]
-
+        path.insert(0, start)  # 添加起点
         return path
 
     def all_none(self):  # 全有全无分配函数
         all_none_linkflow = [0 for i in range(len(self.Links))]
         for i in range(len(self.Links)):
             self.Links[i].Traveltime = self.Links[i].FFT * (
-                        1 + self.Links[i].B * (float(self.Linkflows[i]) / float(self.Links[i].Capacity)) ** self.Links[
-                    i].Power)  # 更新路段行驶时间
+                1 + self.Links[i].B * (float(self.Linkflows[i]) / float(self.Links[i].Capacity)) ** self.Links[i].Power)  # 更新路段行驶时间
             all_none_linkflow[i] = 0
         for i in range(len(self.Origins)):
             o_node = self.Origins[i].origin_node.ID
@@ -151,14 +171,17 @@ class network():  # 网络类，核心函数
         sum1 = 0
         for i in range(len(self.Links)):
             self.Links[i].Traveltime = self.Links[i].FFT * (
-                    1 + self.Links[i].B * (self.Linkflows[i] / self.Links[i].Capacity) ** self.Links[i].Power)
+                1 + self.Links[i].B * (self.Linkflows[i] / self.Links[i].Capacity) ** self.Links[i].Power)
             sum1 += self.Links[i].Traveltime * self.Linkflows[i]  # 计算流量与行驶时间的乘积（UE公式中的积分项）
         sum2 = 0
         for i in range(len(self.Origins)):
             for j in range(len(self.Origins[i].Destination)):
                 demand = self.Origins[i].odlinks_demand[j]
-                cost = self.Dijkstra_path(self.Origins[i].origin_node.ID, self.Origins[i].Destination[j])
-                sum2 += demand * cost[-1]  # 计算需求与行驶时间的乘积，使用路径上的最后一个节点的成本
+                path = self.Dijkstra_path(self.Origins[i].origin_node.ID, self.Origins[i].Destination[j])
+                cost = 0
+                for link_id in path:
+                    cost += self.Links[link_id - 1].Traveltime
+                sum2 += demand * cost  # 计算需求与行驶时间的乘积
         return 1 - sum2 / sum1
 
     def Optfunction(self, Descent, Lamuda):  # 计算函数值，用于一维搜索
@@ -166,10 +189,10 @@ class network():  # 网络类，核心函数
         for i in range(len(self.Links)):
             x = self.Linkflows[i] + Lamuda * Descent[i]
             Sum += Descent[i] * (
-                        self.Links[i].FFT * (1 + self.Links[i].B * (x / self.Links[i].Capacity) ** self.Links[i].Power))
+                self.Links[i].FFT * (1 + self.Links[i].B * (x / self.Links[i].Capacity) ** self.Links[i].Power))
         return Sum
 
-    def Frank_Wolfe(self):  # F定义rank-Wolfe主函数
+    def Frank_Wolfe(self):  # 定义Frank-Wolfe主函数
         iter = 0  # 迭代次数
         self.Linkflows = [0 for i in range(len(self.Links))]
         self.Linkflows = self.all_none()
@@ -206,7 +229,7 @@ class network():  # 网络类，核心函数
 
             for i in range(len(self.Links)):  # 更新路段流量
                 self.Linkflows[i] += Lamuda * Descent[i]
-                print(self.Linkflows)
+                # print(self.Linkflows)
             iter += 1
             self.err = self.getUEerr()
             # print(self.Linkflows)
@@ -219,5 +242,3 @@ net.read_link('路段.csv')
 net.read_od('OD需求.csv')
 net.Frank_Wolfe()
 print(net.Linkflows)
-
-
