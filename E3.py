@@ -92,52 +92,43 @@ class network():  # 网络类，核心函数
                 self.Origins[newnode.origin - 1].odlinks_demand.append(float(row[2]))
 
     def Dijkstra_path(self, start, end):  # 记录最短路径
-        startpos = 0
-        endpos = 1
-        path = []
-        checkpath = [None for i in range(len(self.Nodes))]
-        boolcheckpath = []
-        self.Djpathcost = []
-        self.Djpath = [None for i in range(len(self.Nodes))]
-        bscanStatus = [None for i in range(len(self.Nodes))]
-        for i in range(len(self.Nodes)):
-            self.Djpath.append(-1)
-            self.Djpathcost.append(999999)
-            boolcheckpath.append(False)
-        self.Djpathcost[start - 1] = 0
-        checkpath[0] = start - 1
-        while startpos != endpos:
-            if startpos >= len(self.Nodes):
-                startpos = 0
-            i = checkpath[startpos]
-            startpos += 1
-            newnode = self.Nodes[i]
-            for j in range(len(newnode.outnode)):
-                newlink = self.Links[newnode.outnode[j] - 1]
-                k = newlink.D_link.ID
-                tt = newlink.Traveltime
-                if self.Djpathcost[k - 1] > self.Djpathcost[i] + tt:
-                    self.Djpathcost[k - 1] = self.Djpathcost[i] + tt
-                    self.Djpath[k - 1] = i
-                    if endpos >= len(self.Nodes):
-                        endpos = 0
-                    checkpath[endpos] = k - 1
-                    endpos += 1
-                    bscanStatus[k - 1] = True
-        Djpathlink = []
-        point_out = end - 1
-        while True:
-            i = 0
-            point_in = self.Djpath[point_out]
-            for j in range(len(self.Links)):
-                newlink = self.Links[j]
-                if point_in == newlink.O_link.ID - 1 and point_out == newlink.D_link.ID - 1:
-                    Djpathlink.insert(0, newlink.ID)
-                    point_out = point_in
-            i += 1
-            if point_in == start - 1:
+        num_nodes = len(self.Nodes)
+        unvisited = {node.ID: float('inf') for node in self.Nodes}
+        unvisited[start] = 0
+        visited = {}
+        parents = {node.ID: None for node in self.Nodes}
+
+        while unvisited:
+            current_node = min(unvisited, key=unvisited.get)
+            current_distance = unvisited[current_node]
+
+            if current_distance == float('inf'):
                 break
-        return Djpathlink
+
+            for link_id in self.Nodes[current_node - 1].outnode:
+                link = self.Links[link_id - 1]
+                neighbor = link.D_link.ID
+                new_distance = current_distance + link.Traveltime
+
+                if new_distance < unvisited.get(neighbor, float('inf')):
+                    unvisited[neighbor] = new_distance
+                    parents[neighbor] = current_node
+
+            visited[current_node] = current_distance
+            unvisited.pop(current_node)
+
+            if current_node == end:
+                break
+
+        path = []
+        node = end
+        while parents[node] is not None:
+            for link in self.Links:
+                if link.O_link.ID == parents[node] and link.D_link.ID == node:
+                    path.insert(0, link.ID)
+            node = parents[node]
+
+        return path
 
     def all_none(self):  # 全有全无分配函数
         all_none_linkflow = [0 for i in range(len(self.Links))]
@@ -160,14 +151,14 @@ class network():  # 网络类，核心函数
         sum1 = 0
         for i in range(len(self.Links)):
             self.Links[i].Traveltime = self.Links[i].FFT * (
-                        1 + self.Links[i].B * (self.Linkflows[i] / self.Links[i].Capacity) ** self.Links[i].Power)
+                    1 + self.Links[i].B * (self.Linkflows[i] / self.Links[i].Capacity) ** self.Links[i].Power)
             sum1 += self.Links[i].Traveltime * self.Linkflows[i]  # 计算流量与行驶时间的乘积（UE公式中的积分项）
         sum2 = 0
         for i in range(len(self.Origins)):
             for j in range(len(self.Origins[i].Destination)):
                 demand = self.Origins[i].odlinks_demand[j]
-                cost = self.Dijkstra(self.Origins[i].origin_node.ID, self.Origins[i].Destination[j])
-                sum2 += demand * cost  # 计算需求与行驶时间的乘积
+                cost = self.Dijkstra_path(self.Origins[i].origin_node.ID, self.Origins[i].Destination[j])
+                sum2 += demand * cost[-1]  # 计算需求与行驶时间的乘积，使用路径上的最后一个节点的成本
         return 1 - sum2 / sum1
 
     def Optfunction(self, Descent, Lamuda):  # 计算函数值，用于一维搜索
